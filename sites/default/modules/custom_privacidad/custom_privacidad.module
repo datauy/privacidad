@@ -1,0 +1,509 @@
+<?php
+
+function custom_privacidad_menu(){
+  $items['test'] = array(
+    'title' => t('Test Page'),
+    'description' => t('Test'),
+    'access callback' => TRUE,
+    'page callback' => 'custom_privacidad_test',
+    'type' => MENU_CALLBACK,
+  );
+  $items['visualiza'] = array(
+    'title' => t('Datos recabados'),
+    'description' => t('Datos a recabar del usuario'),
+    'access callback' => TRUE,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('custom_privacidad_data'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['fblogin'] = array(
+    'title' => t('Redireccionamiento de FB'),
+    'description' => t('Datos a recabar del usuario'),
+    'access callback' => TRUE,
+    'page callback' => 'custom_privacidad_fblogin_back',
+    'type' => MENU_CALLBACK,
+  );
+  $items['emailogin'] = array(
+    'title' => t('Redireccionamiento de acceso por email'),
+    'description' => t('Datos a recabar del usuario'),
+    'access callback' => TRUE,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('custom_privacidad_email_accessing_form'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['welcome'] = array(
+    'title' => t('Welcome'),
+    'description' => t('Welcome page'),
+    'access callback' => TRUE,
+    'page callback' => 'custom_privacidad_fblogin',
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+function custom_privacidad_fblogin(){
+  if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+  }
+  require_once(drupal_get_path('module', 'custom_privacidad') . '/Facebook/autoload.php');
+  $fb = new Facebook\Facebook([
+    'app_id' => variable_get('facebook_app_id', ''),
+    'app_secret' => variable_get('facebook_app_secret', ''),
+    'default_graph_version' => 'v2.9',
+    ]);
+  $helper = $fb->getRedirectLoginHelper();
+  $permissions = array(
+    'email',
+    'user_birthday',
+  );
+  $loginUrl = $helper->getLoginUrl('http://privacidad.development.datauy.org/fblogin', $permissions);
+  $email_form = drupal_get_form('custom_privacidad_email_accessing_form');
+  $output = variable_get('custom_privacidad_welcome', '
+  <h1>Gracias por participar</h1>
+  <p><b>Estamos realizando un estudio sobre privacidad en la era digital en Uruguay.</b><br>Queremos hacer una breve serie de preguntas, donde deberás contestar si te encuentras de acuerdo con una serie de afirmaciones. Al 50% de las personas elegidas aleatoriamente, les mostraremos además algunos datos disponibles públicamente sobre tí en base al número de cédula.</p>
+  <p class="small">Para participar de este cuestionario debe ser mayor de 18 años. Tus datos serán registrados y utilizados solo con los fines del presente estudio. Una copia debidamente anonimizada de todas las respuestas podrá ser compartida para realizar estudios posteriores por los equipos de investigadores. Todo este trabajo se encuentra realizado bajo la jurisdicción de la República Oriental del Uruguay y protegidos por la Ley 18.331 y su normativa correspondiente. Como agradecimiento por tu tiempo, te daremos la oportunidad de participar en el sorteo de un premio, un teléfono inteligente (smartphone) Iphone 6s. Dicho sorteo se realizará al cierre de este trabajo entre todas las personas que tomen esta encuesta. A los efectos de mantenerte informado sobre el sorteo, así como de mantenerte al tanto de las actividades de nuestro proyecto, es que también te solicitamos tu correo electrónico. Podrás dejar de estar suscripto cuando lo estimes conveniente. Necesitamos que tus datos sean los correctos a los efectos de poder verificar tu identidad.</p>
+  <h2>¿Quienes somos y porqué hacemos esto?</h2>
+  <p>Datysoc (Datos y Sociedad) es un proyecto de investigación que se dedica a entender la intersección de la privacidad, seguridad y vigilancia en la era digital. El proyecto nuclea a investigadores en las ciencias sociales e informática que buscan generar evidencia para entender y proteger la privacidad en la era digital y se encuentra patrocinado por la Fundación para una Sociedad Abierta (Open Society Foundations) ').'</p>';
+  $output .= '<p class="fb"><a href="' . htmlspecialchars($loginUrl) . '"><img style="width: 220px; height: 45px; float: left;" src="/sites/default/files/fb.png" /></a></p><button onclick="email_form_display()" class="btn btn-primary email-button">Accede por email</button><div class="email-form" style="display: none;">'.drupal_render($email_form).'</div>';
+
+  drupal_add_js('function email_form_display(){
+    jQuery(this).toggleClass("active"); jQuery(".email-form").slideToggle();
+  }', 'inline');
+  return $output;
+}
+function custom_privacidad_email_accessing_form($form, $form_state) {
+  $form = array();
+  $form['email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Email'),
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Continuar'),
+    '#weight' => 10,
+  );
+  return $form;
+}
+function custom_privacidad_email_accessing_form_validate( $form, $form_state ) {
+  if ( !isset($form_state['values']['email']) || !valid_email_address($form_state['values']['email']) ) {
+   form_set_error('email', t('La dirección de email parece no ser válida'));
+   }
+}
+function custom_privacidad_email_accessing_form_submit( $form, $form_state ) {
+  $_SESSION['fb_user'] = array();
+  $_SESSION['fb_user']['id'] = $form_state['values']['email'];
+  $_SESSION['fb_user']['name'] = '';
+  $_SESSION['fb_user']['email'] = $form_state['values']['email'];
+  $_SESSION['fb_user']['gender'] = '';
+  //Validar que el usuario no haya participado search by fbid
+  if ( custom_privacidad_search_cuestionaries_fbid($form_state['values']['email']) && $form_state['values']['email'] != 'chino@datauy.org'){
+    drupal_goto('/has-participado');
+  }
+  else {
+    drupal_goto('/participa');
+  }
+}
+function custom_privacidad_fblogin_back(){
+  if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+  }
+  foreach ($_COOKIE as $k=>$v) {
+      if(strpos($k, "FBRLH_")!==FALSE) {
+          $_SESSION[$k]=$v;
+      }
+  }
+  require_once(drupal_get_path('module', 'custom_privacidad') . '/Facebook/autoload.php');
+  $fb = new Facebook\Facebook([
+    'app_id' => variable_get('facebook_app_id', ''),
+    'app_secret' => variable_get('facebook_app_secret', ''),
+    'default_graph_version' => 'v2.9',
+  ]);
+
+  $helper = $fb->getRedirectLoginHelper();
+
+  try {
+    $accessToken = $helper->getAccessToken();
+  } catch(Facebook\Exceptions\FacebookResponseException $e) {
+    // When Graph returns an error
+    echo 'Graph returned an error: ' . $e->getMessage();
+    exit;
+  } catch(Facebook\Exceptions\FacebookSDKException $e) {
+    // When validation fails or other local issues
+    echo 'Facebook SDK returned an error: ' . $e->getMessage();
+    exit;
+  }
+
+  if (! isset($accessToken)) {
+    if ($helper->getError()) {
+      header('HTTP/1.0 401 Unauthorized');
+      echo "Error: " . $helper->getError() . "\n";
+      echo "Error Code: " . $helper->getErrorCode() . "\n";
+      echo "Error Reason: " . $helper->getErrorReason() . "\n";
+      echo "Error Description: " . $helper->getErrorDescription() . "\n";
+    } else {
+      header('HTTP/1.0 400 Bad Request');
+      echo 'Bad request';
+    }
+    exit;
+  }
+  try {
+    // Returns a `Facebook\FacebookResponse` object
+    $response = $fb->get('/me?fields=id,name,email,gender,birthday,link,locale,location,education,work', $accessToken);
+  } catch(Facebook\Exceptions\FacebookResponseException $e) {
+    echo 'Graph returned an error: ' . $e->getMessage();
+    exit;
+  } catch(Facebook\Exceptions\FacebookSDKException $e) {
+    echo 'Facebook SDK returned an error: ' . $e->getMessage();
+    exit;
+  }
+  // The OAuth 2.0 client handler helps us manage access tokens
+  $oAuth2Client = $fb->getOAuth2Client();
+  // Get the access token metadata from /debug_token
+  $tokenMetadata = $oAuth2Client->debugToken($accessToken);
+  // Validation (these will throw FacebookSDKException's when they fail)
+  $tokenMetadata->validateAppId('1533017483384104'); // Replace {app-id} with your app id
+  $tokenMetadata->validateExpiration();
+  $user = $response->getGraphUser();
+  //Validar que el usuario no haya participado search by fbid
+  if ( custom_privacidad_search_cuestionaries_fbid($user['id']) && $user['id'] !='1650461968400374' ){
+    drupal_goto('/has-participado');
+  }
+  else {
+    $_SESSION['fb_user'] = array();
+    $_SESSION['fb_user']['id'] = $user['id'];
+    $_SESSION['fb_user']['name'] = $user['name'];
+    $_SESSION['fb_user']['email'] = $user['email'];
+    $_SESSION['fb_user']['gender'] = $user['gender'];
+    drupal_goto('/participa');
+  }
+}
+
+function custom_privacidad_form_cuestionario_node_form_alter (&$form, &$form_state) {
+  global $user;
+  if (!isset($form_state['stage'])) {
+    if ( !isset($_SESSION['fb_user']['id']) && !$user->uid ){
+      drupal_goto('/has-participado');
+    }
+    unset($_SESSION['privacidad_allowed']);
+    $form_state['stage'] = 1;
+    $form_state['max_stage'] = 4;
+    $form['field_fbid']['#access'] = 0;
+    $form['field_genero']['#attributes'] = array('class' => array('selectpicker'));
+    $form['#validate'][] = 'custom_privacidad_validate_step';
+    $form['field_soy_mayor_de_edad']['#required'] = true;
+  }
+  else {
+    //drupal_add_css('', array('type' => 'inline'));
+  }
+  custom_privacidad_form_steps($form, $form_state);
+}
+
+function custom_privacidad_form_cuestionario2_node_form_alter (&$form, &$form_state) {
+  global $user;
+  watchdog('custom_privacidad', 'ENTRA A CUESTIONARIO 2', array() );
+  if ( $user->uid == 0 ) {
+    if ( !isset($form_state['stage']) ) {
+      if ( isset($_SESSION['privacidad_allowed']) ) {
+        //Ver de hacer dinamico si se precisa
+        $form_state['max_stage'] = 4;
+        $form_state['stage'] = 1;
+        custom_privacidad_submit_step($form, $form_state);
+        $form_state['stage'] = 2;
+        //custom_privacidad_form_steps($form, $form_state);
+      }
+      else {
+        drupal_goto('/');
+      }
+    }
+    custom_privacidad_form_steps($form, $form_state);
+  }
+}
+
+function custom_privacidad_form_steps(&$form, &$form_state) {
+  global $user;
+  /*print '<pre>';
+  print_r($form);
+  exit();*/
+  if ( $user->uid == 0) {
+    watchdog('custom_privacidad', 'ENTRA A STEP: '.$form_state['stage'], array() );
+    $form_state['stage_fields'] = array();
+    $hidden_groups = array();
+    foreach ($form['#groups'] as $gname => $group) {
+      $gname_arr = explode('_', $gname);
+      if ( $gname_arr['1'] != $form_state['stage'] ){
+        $hidden_groups[$gname] = $group;
+      }
+      else {
+        $form_state['stage_fields'] = $group->children;
+      }
+    }
+    if ( empty($form_state['stage_fields']) ){
+      $form_state['stage'] = $form_state['stage'] + 1;
+      custom_privacidad_form_steps($form, $form_state);
+    }
+    else {
+      foreach ($hidden_groups as $group) {
+        foreach ($group->children as $field) {
+          $form[$field]['#access'] = false;
+          $form[$field]['#required'] = false;
+        }
+      }
+      watchdog('custom_privacidad', 'VA POR ELSE: '.print_r($form_state['stage_fields'], TRUE), array() );
+      if ( isset( $_SESSION['fb_user'] ) ){
+        watchdog('custom_privacidad', 'FB USER: '.print_r($_SESSION['fb_user'], TRUE), array() );
+        //Cargamos los datos y quitamos la variable
+        //$form['title'] = $_SESSION['fb_user']['name'];
+        switch ($_SESSION['fb_user']['gender']){
+          case 'male':
+            $gender = 'Masculino';
+          break;
+          case 'female':
+            $gender = 'Femenino';
+          break;
+          default:
+            $gender = 'Otro';
+        }
+        $form['field_genero']['und']['#default_value'][] = $gender;
+        $form['title']['#default_value'] = $_SESSION['fb_user']['name'];
+        $form['field_name']['und']['0']['value']['#default_value'] = $_SESSION['fb_user']['name'];
+        $form['field_email']['und']['0']['value']['#default_value'] = $_SESSION['fb_user']['email'];
+        $form['field_fbid']['#access'] = false;
+      }
+      //Agregamos el custom submit
+      $form['#submit'][] = 'custom_privacidad_submit_step';
+      $form['last_message'] = array(
+        '#type' => 'item',
+        '#markup' => t('<p class="help-block">* Obligatorio</p>'),
+        '#weight' => 99,
+      );
+      if ( $form_state['max_stage'] > $form_state['stage'] ){
+        unset($form['actions']['submit']);
+        $form['next'] = array(
+          '#type' => 'submit',
+          '#value' => 'Continuar',
+          '#weight' => 100,
+        );
+      }
+      else {
+        $form['actions']['submit']['#value'] = 'Continuar';
+      }
+    }
+  }
+}
+function custom_privacidad_validate_step ($form, &$form_state){
+  if ( $form_state['stage'] == 1 && ( !isset($form_state['values']['field_soy_mayor_de_edad']['und']) || !$form_state['values']['field_soy_mayor_de_edad']['und']['0']['value'] ) ){
+    //&& !$form_state['values']['center']
+    form_set_error('field_soy_mayor_de_edad', 'Debes ser mayor de edad para poder participar');
+  }
+}
+function custom_privacidad_submit_step ($form, &$form_state){
+  //Get values to update
+  if ( $form_state['stage'] == 1 ){
+    if ( isset($_SESSION) ) {
+      //Privacy allowed es sólo para cuestionario2 sino estamos en el 1
+      if ( isset($_SESSION['privacidad_allowed']) ) {
+        $form_state['values']['field_cuestionario']['und']['0']['target_id'] = $_SESSION['privacidad_allowed'];
+        $form_state['values']['title'] = $_SESSION['privacidad_allowed_title'];
+        if ( isset($_SESSION['user_collected_data']) ) {
+          $form_state['values']['field_visualized_data']['und']['0']['value'] = true;
+        }
+      }
+      else {
+        $form_state['values']['field_fbid']['und']['0']['value'] = $_SESSION['fb_user']['id'];
+        unset($_SESSION['fb_user']);
+        $number_of_visitant = variable_get('custom_privacidad_visitants', 0);
+        if ( $number_of_visitant % 2 == 0 ) {
+          /*$_SESSION['user_collected_data'] = $form_state['values']['field_cedula_de_identidad']['und']['0']['value'];
+          exec('cd /home/datauy/vigilanciaenuruguay/api/ && php -f search_data_rr.php '.$_SESSION['user_collected_data'].' > /dev/null 2>/dev/null &');*/
+        }
+      }
+    }
+    $form_state['multistep_values'] = $form_state['values'];
+  }
+  else {
+    foreach ($form_state['stage_fields'] as $field) {
+      $form_state['multistep_values'][$field] = $form_state['values'][$field];
+    }
+  }
+  $form_state['multistep_values'] = array_merge($form_state['values'], $form_state['multistep_values']);
+  if ( $form_state['max_stage'] != $form_state['stage'] ){
+    if (isset($form_state['multistep_values']['form_build_id'])) {
+      $form_state['values']['form_build_id'] = $form_state['multistep_values']['form_build_id'];
+    }
+    if (isset($form_state['values']['form_build_id'])){
+      $form_state['multistep_values']['form_build_id'] = $form_state['values']['form_build_id'];
+    }
+    $form_state['stage'] = $form_state['stage'] + 1;
+    $form_state['rebuild'] = TRUE;
+  }
+  else {
+    $form_state['values'] = $form_state['multistep_values'];
+  }
+}
+
+function custom_privacidad_node_insert($node) {
+  if ($node->type == 'cuestionario') {
+    $number_of_visitant = variable_get('custom_privacidad_visitants', 0);
+    variable_set('custom_privacidad_visitants', $number_of_visitant + 1);
+    $_SESSION['privacidad_allowed'] = $node->nid;
+    $_SESSION['privacidad_allowed_title'] = $node->title;
+    watchdog('custom_privacidad', 'NODE INSERT (+1):'.$number_of_visitant, array() );
+    if ( isset($_SESSION['user_collected_data']) ) {
+      drupal_goto('/visualiza');
+    }
+    else {
+      drupal_goto('/continua');
+    }
+  }
+  elseif ($node->type == 'cuestionario2'){
+    unset($_SESSION['user_collected_data']);
+    unset($_SESSION['privacidad_allowed']);
+    unset($_SESSION['privacidad_allowed_title']);
+    drupal_goto( 'gracias', array('query', array( 'nid' => $node->nid)) );
+  }
+}
+
+function custom_privacidad_data(){
+  if ( isset($_SESSION['user_collected_data']) ){
+    $memcache = new Memcache;
+    $memcache->connect('localhost', 11211) or die ("Could not connect");
+    $user_data = $memcache->get($_SESSION['user_collected_data']);
+    //print_r($user_data);
+    //exit();
+    $data_print = '';
+    if ( $user_data['requestSuccessfull'] ){
+      if ( $user_data['status'] == 'NoDataForSelectedPeriod' ) {
+        unset($_SESSION['user_collected_data']);
+        drupal_goto('/continua');
+        //$data_print .= '<p>No has realizado operaciones financieras durante el último año...</p>';
+      }
+      else {
+        foreach ($user_data['special_data'] as $data_value) {
+          switch ($data_value['tipo']) {
+            case 'datosPersonales':
+              $period = '';
+              $year = substr($user_data['periodo'], 0, 4);
+              $curent_year = 2018;
+              while ( $year < $curent_year ) {
+                $period .= "<h3>Datos perenecientes a Enero ".$curent_year."</h3><p>No hay datos para ese mes</p>";
+                $curent_year--;
+              }
+              $period .= "<h3>Datos perenecientes a Enero ".$year."</h3>";
+              $data_print = '<h2>'.$data_value['Nombre'].'</h2><p>La siguiente información es obtenida con tu número de cédula, desde una <a target="_blank" href="http://consultadeuda.bcu.gub.uy/consultadeuda/">página de acceso público de la Central de Riesgos del Banco Central</a> (o sea, que cualquiera con tu número de cédula puede acceder).</p><p>Incluye tu calificación crediticia y deuda vigente en moneda nacional (mn) y moneda extranjera (me). Podés ver más detalles en las <a target="_blank" href="http://www.bcu.gub.uy/Servicios-Financieros-SSF/Paginas/Central_Riesgos_Preguntas.aspx">Preguntas Frecuentes de la Central de Riesgos del Banco Central</a>.</p><p>Te mostramos esta información como un ejemplo del tipo de datos que están disponibles públicamente sobre las personas en la red. <strong>No estamos recolectando, ni almacenando de ninguna forma esta información</strong>.</p><p>Te mostramos esta información de Enero de 2016 como un ejemplo del tipo de datos que están disponibles públicamente sobre las personas en la red. Pero podría consultarse, de igual manera, toda tu información de hasta 15 años atrás.</p>'.$period.$data_print;
+              break;
+            case 'datosBanco':
+              $calif = $data_value['Calificacion'];
+              $calif_desc = custom_privacidad_calif_desc($calif);
+              $data_print .= isset($data_value['Nombre']) ? '<b><h3>Banco: '.$data_value['Nombre'].'</h3></b>' : '';
+              $data_print .= isset($calif) ? '' : '';
+              $data_print .= isset($calif_desc) ? '<b>Tu Calificación</b><div><span>'.$calif_desc['0'].'<span>'.$calif_desc['1'].'</div>' : '';
+              $data_print .= '<b>Deudas</b>';
+              $data_print .= isset($data_value['Vigente_mn-pesos']) ? '<div>Deuda vigente en Moneda Nacional (Pesos): '.$data_value['Vigente_mn-pesos'].'</div>' : '';
+              $data_print .= isset($data_value['Vigente_me-pesos']) ? '<div>Deuda vigente en Moneda Extranjera (Pesos): '.$data_value['Vigente_me-pesos'].'</div>' : '';
+              $data_print .= isset($data_value['Vigente_No_Autoliquidable_mn-pesos']) ? '<div>Deuda vigente no autoliquidable en Moneda Nacional (Pesos): '.$data_value['Vigente_No_Autoliquidable_mn-pesos'].'</div>' : '';
+              $data_print .= isset($data_value['Vigente_No_Autoliquidable_me-pesos']) ? '<div>Deuda vigente no autoliquidable en Moneda Extranjera (Pesos):  '.$data_value['Vigente_No_Autoliquidable_me-pesos'].'</div>' : '';
+              break;
+            default:
+              break;
+          }
+        }
+      }
+      $form['welcome'] = array(
+        '#type' => 'item',
+        '#markup' => $data_print,
+      );
+      $form['next'] = array(
+        '#type' => 'submit',
+        '#value' => t('Continuar'),
+        '#weight' => 100,
+      );
+      return $form;
+    }
+    else {
+      unset($_SESSION['user_collected_data']);
+      drupal_goto('/continua');
+      //print_r($user_data);
+      //exit();
+    }
+  }
+  else {
+    drupal_goto('/continua');
+  }
+}
+
+function custom_privacidad_calif_desc($calif) {
+  $calis = array(
+    'CALIF: 1A' => array('1A - Operaciones con garantías autoliquidables admitidas','<p>Comprende operaciones totalmente respaldadas por determinadas garantías de muy buena calidad y muy líquidas, de modo que, si el deudor incumple con el repago del préstamo, la institución financiera puede recuperar fácilmente las sumas prestadas a través de la ejecución de la garantía.</p>'),
+    'CALIF: 1C' => array('1C - Deudores con capacidad de pago fuerte','<p>Se trata de clientes con operaciones vigentes o con menos de 10 días de vencidas. Han registrado resultados positivos en los 3 últimos años y en cuanto a su capacidad de pago se evalúa que seguirá siendo muy buena aún ante cambios importantes de las condiciones macroeconómicas. Pueden incluirse operaciones de crédito estructuradas con muy buenas perspectivas de cobro.</p>'),
+    'CALIF: 2A' => array('2A - Deudores con capacidad de pago adecuada','<p>Pueden presentar pequeñas dificultades, manifiestas en atrasos de menos de 30 días en sus pagos o de 60 días en el caso de la información a presentar. Pueden presentar pérdidas ocasionales.</p>'),
+    'CALIF: 2B' => array('2B - Deudores con capacidad de pago con problemas potenciales','<p>Son deudores que pueden llegar a tener dificultades. Pueden tener atrasos menores a 60 días en sus pagos. Sus pérdidas en los 3 últimos años, si las hubo, no son importantes. Asimismo pueden presentar atrasos menores a 90 días en la información que deben presentar a la institución.</p>'),
+     'CALIF: 3' => array('3 - Deudores con capacidad de pago comprometida','</p>Son deudores cuya situación crediticia  evidencia problemas importantes, presentan atrasos de menos de 120 días en los pagos, o en la remisión de información a la institución. Ésta es la mínima calificación que pueden tener los deudores con pérdidas significativas en los últimos 3 años o que presenten mala calificación en otra institución.</p>'),
+    'CALIF: 4' => array('4 - Deudores con capacidad de pago muy comprometida','<p>Comprende a los deudores con problemas importantes en su capacidad de pago, evidenciados en atrasos mayores a 120 días en la presentación de la información a la institución o de hasta 180 días en los pagos o  que hayan pérdidas muy significativas en los últimos 3 años.</p>'),
+    'CALIF: 5' => array('5 - Deudores irrecuperables','<p>Se trata de casos de clara evidencia de incobrabilidad, con atrasos mayores a 180 días en los pagos y de más de 120 días  en la presentación de información.</p>')
+  );
+  return $calis[$calif];
+}
+function custom_privacidad_data_submit(){
+  drupal_goto('/continua');
+}
+
+function custom_privacidad_test(){
+  global $user;
+
+  print '<pre>';
+  print_r(node_load(81));
+  exit();
+  $key = isset($_GET['ci']) ? $_GET['ci'] : '43422847';
+  print 'GETTING USER DATA '.$key;
+  if ( $user->uid == 1 ){
+    $memcache = new Memcache;
+    $memcache->connect('localhost', 11211) or die ("Could not connect");
+    $user_data = $memcache->get($key);
+    print 'DATOS mem:<pre>';
+    print_r($user_data);
+  }
+}
+
+function custom_privacidad_search_cuestionaries_fbid($fbid){
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'node')
+    ->addMetaData('account', user_load(1))
+    ->entityCondition('bundle', 'cuestionario')
+    ->fieldCondition('field_fbid', 'value', $fbid);
+  $result = $query->execute();
+  if ( !empty($result['node']) ){
+    return 1;
+  }
+  return 0;
+}
+/*
+HOOKS
+*/
+/**
+ * Implements hook_permission().
+
+function module_permission(){
+	return array('datauy configure' => array('title' => 'Configure custom site info'));
+}
+ */
+
+/**
+ * Implements hook_mail().
+
+function hook_mail($key, &$message, $params) {
+  $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; ; format=flowed;';
+  switch ($key)
+  {
+      case 'test':
+        $body = $params['body'];
+        $message['subject'] = t('Test requested');
+        break;
+  }
+  $message['body'][] = $body;
+}
+*/
+?>

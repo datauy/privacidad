@@ -1,0 +1,4 @@
+name = DataUY Custom site module
+description = Customizaciones desarrolladas por DATA para el sitio
+core = 7.x
+package = "DATA modules"
